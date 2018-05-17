@@ -3,14 +3,24 @@ from __future__ import absolute_import, print_function
 import tvm
 import numpy as np
 import topi
+from layers.utils import REMOTE as remote
+from tvm.contrib import rpc, util, ndk
 
 # Global declarations of environment.
 
 # llvm
-tgt_host="llvm"
+# tgt_host="llvm"
 # llvm, cuda, opencl, metal
 # Change it to respective GPU if gpu is enabled Ex: cuda, opencl
-tgt="llvm"
+# tgt="llvm"
+
+def _export_module(f, name, remote):
+    temp = util.tempdir()
+    path_dso = temp.relpath("{0}.so".format(name))
+    f.export_library(path_dso, ndk.create_shared)
+    remote.upload(path_dso)
+    f_new = remote.load_module("{0}.so".format(name))
+    return f_new
 
 
 def make_elemwise_add(shape, tgt, tgt_host, func_name, dtype="float32"):
@@ -20,7 +30,7 @@ def make_elemwise_add(shape, tgt, tgt_host, func_name, dtype="float32"):
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, B, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_elemwise_mul(shape, tgt, tgt_host, func_name, dtype="float32"):
@@ -31,7 +41,7 @@ def make_elemwise_mul(shape, tgt, tgt_host, func_name, dtype="float32"):
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, B, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_elemwise_add_by_const(shape, const_k, tgt, tgt_host, func_name,
@@ -43,7 +53,7 @@ def make_elemwise_add_by_const(shape, const_k, tgt, tgt_host, func_name,
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_elemwise_mul_by_const(shape, const_k, tgt, tgt_host, func_name,
@@ -55,7 +65,7 @@ def make_elemwise_mul_by_const(shape, const_k, tgt, tgt_host, func_name,
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 def make_relu(shape, tgt, tgt_host, func_name, dtype="float32"):
     """TODO: Your code here"""
@@ -66,7 +76,7 @@ def make_relu(shape, tgt, tgt_host, func_name, dtype="float32"):
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_relu_gradient(shape, tgt, tgt_host, func_name, dtype="float32"):
@@ -79,7 +89,7 @@ def make_relu_gradient(shape, tgt, tgt_host, func_name, dtype="float32"):
 
     s = tvm.create_schedule([relu_grad.op])
     f = tvm.build(s, [A, grad, relu_grad], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
                     func_name, dtype="float32"):
@@ -111,8 +121,17 @@ def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
     s[Z].reorder(xo, yo, ko, xi, ki, yi)
     s[Z].vectorize(yi)
     s[Z].parallel(xo)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    # s[Z].bind(xi, block_x)
+    # if len(Z.op.axis) > 1:
+    #     s[Z].bind(yi, thread_x)
+
+
     f = tvm.build(s, [X, Y, Z], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
@@ -135,7 +154,7 @@ def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
 
     s = tvm.create_schedule(Y.op)
     f = tvm.build(s, [X, F, Y], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_matrix_softmax(shape, tgt, tgt_host, func_name, dtype="float32"):
@@ -156,7 +175,7 @@ def make_matrix_softmax(shape, tgt, tgt_host, func_name, dtype="float32"):
     Y = tvm.compute(shape, lambda i,j: E_X[i,j] / E_X_SUM(i))
     s = tvm.create_schedule(Y.op)
     f = tvm.build(s, [X, Y], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 def make_matrix_softmax_cross_entropy(shape, tgt, tgt_host, func_name,
                                       dtype="float32"):
@@ -182,7 +201,7 @@ def make_matrix_softmax_cross_entropy(shape, tgt, tgt_host, func_name,
 
     s = tvm.create_schedule(MEAN.op)
     f = tvm.build(s, [X, X_P, MEAN], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_reduce_sum_axis_zero(shape, tgt, tgt_host, func_name, dtype="float32"):
@@ -191,7 +210,7 @@ def make_reduce_sum_axis_zero(shape, tgt, tgt_host, func_name, dtype="float32"):
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_broadcast_to(shape, to_shape, tgt, tgt_host, func_name,
@@ -201,7 +220,7 @@ def make_broadcast_to(shape, to_shape, tgt, tgt_host, func_name,
 
     s = tvm.create_schedule(C.op)
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)
 
 
 def make_sgd_update(shape, learning_rate, tgt, tgt_host, func_name,
@@ -209,7 +228,14 @@ def make_sgd_update(shape, learning_rate, tgt, tgt_host, func_name,
     X = tvm.placeholder(shape, dtype=dtype, name="A")
     grad = tvm.placeholder(shape, dtype=dtype, name="grad")
     Y = tvm.compute(shape, lambda *i: X(*i) - learning_rate * grad(*i))
-
     s = tvm.create_schedule(Y.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[Y].bind(Y.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[Y].bind(Y.op.axis[1], thread_x)
+
     f = tvm.build(s, [X, grad, Y], tgt, target_host=tgt_host, name=func_name)
-    return f
+    return _export_module(f, func_name, remote)

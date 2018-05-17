@@ -6,9 +6,13 @@ import os
 import time
 
 import tvm
+from tvm.contrib import rpc, util, ndk
 from layers import autodiff as ad
 from layers import tvm_op
 
+print(tvm.__file__)
+
+os.environ["TVM_NDK_CC"] = "/opt/android-toolchain-arm64/bin/aarch64-linux-android-gcc"
 
 def load_mnist_data(dataset):
     """ Load the dataset
@@ -63,12 +67,15 @@ def convert_to_one_hot(vals):
 def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
     print("=== Build logistic regression model...")
 
-    # recover tgt, tgt_host info from tvm.context
-    if executor_ctx == tvm.cpu(0):
-        tgt = "llvm"
-        tgt_host = "llvm"
-    else:
-        assert False, "non-CPU context not yet supported"
+    # # recover tgt, tgt_host info from tvm.context
+    # if executor_ctx == tvm.cpu(0):
+    #     tgt = "llvm"
+    #     tgt_host = "llvm"
+    # else:
+    #     assert False, "non-CPU context not yet supported"
+
+    tgt = 'opencl'
+    tgt_host = 'llvm -target=aarch64-linux-android'
 
     W1 = ad.Variable(name="W1")
     b1 = ad.Variable(name="b1")
@@ -361,11 +368,21 @@ if __name__ == "__main__":
         tgt = "cuda"
         tgt_host = "llvm"
         assert False, "cuda codegen not ready"
+    elif args.executor_context == "adreno":
+        tgt = "opencl"
+        tgt_host = "llvm -target=aarch64-linux-android"
+
     # create context object
-    executor_ctx = tvm.context(tgt, 0)
+    # executor_ctx = tvm.context(tgt, 0)
 
     print_loss_val_each_epoch = True if args.print_loss_val_each_epoch \
                                      else False
+
+
+    # TODO: change this
+    executor_ctx = tvm_op.remote.cl(0)
+    print(executor_ctx.device_name)
+
     num_epochs = args.num_epoch
     for m in models:
         m(executor_ctx, num_epochs, print_loss_val_each_epoch)

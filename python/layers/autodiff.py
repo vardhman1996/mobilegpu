@@ -136,6 +136,15 @@ class Op(object):
         """
         raise NotImplementedError
 
+    # # TODO:  temp = util.tempdir()
+    # def _export_module(self, f, name, remote):
+    #     temp = util.tempdir()
+    #     path_dso = temp.relpath("{0}.so".format(name))
+    #     f.export_library(path_dso, ndk.create_shared)
+    #     remote.upload(path_dso)
+    #     f_new = remote.load_module("{0}.so".format(name))
+    #     return f_new
+
 
 class AddOp(Op):
     def __call__(self, node_A, node_B):
@@ -156,10 +165,10 @@ class AddOp(Op):
         """Need to handle input_vals[0].shape != input_vals[1].shape"""
         return broadcast_rule(input_shapes[0], input_shapes[1])
 
-    def compiled_func(self, node, input_shapes, tgt, tgt_host):
+    def compiled_func(self, node, input_shapes, tgt, tgt_host, remote):
+        name = 'elem_add'
         return tvm_op.make_elemwise_add(
-            input_shapes[0], tgt, tgt_host, "elem_add")
-
+            input_shapes[0], tgt, tgt_host, name)
 
 class AddByConstOp(Op):
     def __call__(self, node_A, const_val):
@@ -183,8 +192,9 @@ class AddByConstOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'const_add'
         return tvm_op.make_elemwise_add_by_const(
-            input_shapes[0], node.const_attr, tgt, tgt_host, 'const_add')
+            input_shapes[0], node.const_attr, tgt, tgt_host, name)
 
 class MulOp(Op):
     def __call__(self, node_A, node_B):
@@ -208,8 +218,9 @@ class MulOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'elem_mul'
         return tvm_op.make_elemwise_mul(
-            input_shapes[0], tgt, tgt_host, 'elem_mul')
+            input_shapes[0], tgt, tgt_host, name)
 
 class MulByConstOp(Op):
     def __call__(self, node_A, const_val):
@@ -232,8 +243,10 @@ class MulByConstOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'const_mul'
         return tvm_op.make_elemwise_mul_by_const(
-            input_shapes[0], node.const_attr, tgt, tgt_host, 'const_mul')
+            input_shapes[0], node.const_attr, tgt, tgt_host, name)
+
 
 class MatMulOp(Op):
     def __call__(self, node_A, node_B, trans_A=False, trans_B=False):
@@ -297,10 +310,11 @@ class MatMulOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'mat_mul'
         return tvm_op.make_matrix_mul(
             input_shapes[0], node.matmul_attr_trans_A,
             input_shapes[1], node.matmul_attr_trans_B,
-            tgt, tgt_host, func_name='mat_mul')
+            tgt, tgt_host, func_name=name)
 
 class PlaceholderOp(Op):
     def __call__(self):
@@ -571,11 +585,13 @@ class Executor(object):
         """
         self.eval_node_list = eval_node_list
         self.ctx = ctx
-        if self.ctx == tvm.cpu(0):
-            self.tgt = "llvm"
-            self.tgt_host="llvm"
-        else:
-            assert False, "non-CPU context not yet supported"
+        # if self.ctx == tvm.cpu(0):
+        #     self.tgt = "llvm"
+        #     self.tgt_host="llvm"
+        # else:
+        #     assert False, "non-CPU context not yet supported"
+        self.tgt = 'opencl'
+        self.tgt_host = 'llvm -target=aarch64-linux-android'
         self.topo_order = find_topo_sort(self.eval_node_list)
         self.node_to_shape_map = None
         self.node_to_arr_map = None
