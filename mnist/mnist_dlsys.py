@@ -12,7 +12,7 @@ from layers import tvm_op
 
 print(tvm.__file__)
 
-os.environ["TVM_NDK_CC"] = "/opt/android-toolchain-arm64/bin/aarch64-linux-android-gcc"
+os.environ["TVM_NDK_CC"] = "/Users/Divye/opt/android-toolchain-arm64/bin/aarch64-linux-android-gcc"
 
 def load_mnist_data(dataset):
     """ Load the dataset
@@ -74,6 +74,7 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
     # else:
     #     assert False, "non-CPU context not yet supported"
 
+    print("mnist_logreg", executor_ctx.device_name)
     tgt = 'opencl'
     tgt_host = 'llvm -target=aarch64-linux-android'
 
@@ -133,9 +134,8 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
         for minibatch_index in range(n_train_batches):
             minibatch_start = minibatch_index * batch_size
             minibatch_end = (minibatch_index + 1) * batch_size
-            X_val.copyfrom(train_set_x[minibatch_start:minibatch_end])
-            y_val.copyfrom(
-                convert_to_one_hot(train_set_y[minibatch_start:minibatch_end]))
+            X_val =  tvm.nd.array(train_set_x[minibatch_start:minibatch_end], ctx=executor_ctx)
+            y_val =  tvm.nd.array(convert_to_one_hot(train_set_y[minibatch_start:minibatch_end]), ctx=executor_ctx)
             loss_val, grad_W1_val, grad_b1_val, _ = executor.run(
                 feed_dict = {X: X_val, y_: y_val, W1: W1_val, b1: b1_val})
             # SGD update

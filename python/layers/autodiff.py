@@ -4,6 +4,8 @@ from __future__ import absolute_import
 import numpy as np
 import tvm
 from . import tvm_op
+from layers.utils import *
+
 
 class Node(object):
     """Node in a computation graph."""
@@ -165,7 +167,7 @@ class AddOp(Op):
         """Need to handle input_vals[0].shape != input_vals[1].shape"""
         return broadcast_rule(input_shapes[0], input_shapes[1])
 
-    def compiled_func(self, node, input_shapes, tgt, tgt_host, remote):
+    def compiled_func(self, node, input_shapes, tgt, tgt_host):
         name = 'elem_add'
         return tvm_op.make_elemwise_add(
             input_shapes[0], tgt, tgt_host, name)
@@ -655,6 +657,9 @@ class Executor(object):
                 self.node_to_compiled_func[node] = node.op.compiled_func(
                     node, feed_shapes[node], self.tgt, self.tgt_host)
             else:
+                print(node.name)
+                # if 'SoftmaxXEntropy' in node.name:
+                #     continue
                 input_shapes = [self.node_to_shape_map[node_in] for node_in in node.inputs]
                 self.node_to_compiled_func[node] = node.op.compiled_func(node, input_shapes, self.tgt, self.tgt_host)
 
@@ -702,6 +707,7 @@ class Executor(object):
             input_vals = [node_to_val_map[n] for n in node.inputs]
             node_val = self.node_to_arr_map[node]
             # node_val is modified in-place
+
             node.op.compute(
                 node, input_vals, node_val, self.node_to_compiled_func[node])
             node_to_val_map[node] = node_val

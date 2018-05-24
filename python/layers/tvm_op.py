@@ -29,6 +29,14 @@ def make_elemwise_add(shape, tgt, tgt_host, func_name, dtype="float32"):
     C = tvm.compute(A.shape, lambda *i: A(*i) + B(*i))
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, B, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -40,6 +48,14 @@ def make_elemwise_mul(shape, tgt, tgt_host, func_name, dtype="float32"):
     C = tvm.compute(A.shape, lambda *i: A(*i) * B(*i))
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, B, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -52,6 +68,14 @@ def make_elemwise_add_by_const(shape, const_k, tgt, tgt_host, func_name,
     C = tvm.compute(A.shape, lambda *i: A(*i) + B)
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -64,6 +88,14 @@ def make_elemwise_mul_by_const(shape, const_k, tgt, tgt_host, func_name,
     C = tvm.compute(A.shape, lambda *i: A(*i) * B)
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -75,6 +107,14 @@ def make_relu(shape, tgt, tgt_host, func_name, dtype="float32"):
     C = tvm.compute(A.shape, lambda *i: tvm.max(A(*i),  B))
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -88,6 +128,14 @@ def make_relu_gradient(shape, tgt, tgt_host, func_name, dtype="float32"):
 
 
     s = tvm.create_schedule([relu_grad.op])
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[relu_grad].bind(relu_grad.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[relu_grad].bind(relu_grad.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, grad, relu_grad], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -125,6 +173,9 @@ def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
     block_x = tvm.thread_axis("blockIdx.x")
     thread_x = tvm.thread_axis("threadIdx.x")
 
+    s[Z].bind(xo, block_x)
+    s[Z].bind(yo, thread_x)
+    # print(tvm.lower(s, [X, Y, Z], simple_mode=True))
     # s[Z].bind(xi, block_x)
     # if len(Z.op.axis) > 1:
     #     s[Z].bind(yi, thread_x)
@@ -153,6 +204,13 @@ def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
                     lambda n,m,h,w: tvm.sum(X[n, kc, h + kx, w + ky] * F[m, kc, kx, ky], axis=[kx,ky,kc]))
 
     s = tvm.create_schedule(Y.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[Y].bind(kx, block_x)
+    s[Y].bind(ky, thread_x)
+
     f = tvm.build(s, [X, F, Y], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -169,11 +227,36 @@ def make_matrix_softmax(shape, tgt, tgt_host, func_name, dtype="float32"):
     X = tvm.placeholder(shape, dtype=dtype, name='X')
     ky = tvm.reduce_axis((0, shape[1]), name='ky')
     MAX_X = tvm.compute((shape[0],), lambda i: tvm.max(X[i, ky], axis=[ky]))
+
     E_X = tvm.compute(shape, lambda i, j: tvm.exp(X[i, j] - MAX_X(i)))
+
     ky_n = tvm.reduce_axis((0, shape[1]), name='ky_n')
     E_X_SUM = tvm.compute((shape[0],), lambda i: tvm.sum(E_X[i, ky_n], axis=[ky_n]))
+
     Y = tvm.compute(shape, lambda i,j: E_X[i,j] / E_X_SUM(i))
     s = tvm.create_schedule(Y.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    # MAX_X
+    s[MAX_X].bind(MAX_X.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[MAX_X].bind(ky, tvm.thread_axis("threadIdx.x"))
+
+    # E_X
+    s[E_X].bind(E_X.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[E_X].bind(E_X.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    # E_X_SUM
+    s[E_X_SUM].bind(E_X_SUM.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[E_X_SUM].bind(ky_n, tvm.thread_axis("threadIdx.x"))
+
+    # SOFTMAX_X
+    s[Y].bind(Y.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[Y].bind(Y.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    # print(tvm.lower(s, [X, Y], simple_mode=True))
+
     f = tvm.build(s, [X, Y], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -184,22 +267,75 @@ def make_matrix_softmax_cross_entropy(shape, tgt, tgt_host, func_name,
     X = tvm.placeholder(shape, dtype=dtype, name='X')
     a1 = tvm.reduce_axis((0, shape[1]), name='a1')
     MAX_X = tvm.compute((shape[0],), lambda i: tvm.max(X[i, a1], axis=[a1]))
+
+
     E_X = tvm.compute(shape, lambda i, j: tvm.exp(X[i, j] - MAX_X(i)))
+
     a2 = tvm.reduce_axis((0, shape[1]), name='a2')
     E_X_SUM = tvm.compute((shape[0],), lambda i: tvm.sum(E_X[i, a2], axis=[a2]))
+
     SOFTMAX_X = tvm.compute(shape, lambda i, j: E_X[i, j] / E_X_SUM(i))
 
     LOG_SOFTMAX_X = tvm.compute(shape, lambda i,j: tvm.log(SOFTMAX_X[i, j]))
+
     X_P = tvm.placeholder(shape, dtype=dtype, name='X_P')
 
     MUL = tvm.compute(shape, lambda i,j: X_P[i,j] * LOG_SOFTMAX_X[i,j])
+
     a3 = tvm.reduce_axis((0, shape[1]), name='a3')
     SUM = tvm.compute((shape[0],), lambda i: tvm.sum(-MUL[i, a3], axis=[a3]))
 
     a4 = tvm.reduce_axis((0, shape[0]), name='a4')
     MEAN = tvm.compute((1,), lambda i: tvm.sum(SUM[a4] / shape[0], axis=[a4]))
 
+    # s = tvm.create_schedule([MAX_X.op, E_X.op, E_X_SUM.op, SOFTMAX_X.op, LOG_SOFTMAX_X.op, MUL.op, SUM.op, MEAN.op])
     s = tvm.create_schedule(MEAN.op)
+
+    # print(tvm.lower(s, [X, X_P, MEAN], simple_mode=True))
+
+    # MAX_X
+    s[MAX_X].bind(MAX_X.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[MAX_X].bind(a1, tvm.thread_axis("threadIdx.x"))
+
+    # E_X
+    s[E_X].bind(E_X.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[E_X].bind(E_X.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    # E_X_SUM
+    s[E_X_SUM].bind(E_X_SUM.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[E_X_SUM].bind(a2, tvm.thread_axis("threadIdx.x"))
+
+    # SOFTMAX_X
+    s[SOFTMAX_X].bind(SOFTMAX_X.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[SOFTMAX_X].bind(SOFTMAX_X.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    # LOG_SOFT_MAX
+    s[LOG_SOFTMAX_X].bind(LOG_SOFTMAX_X.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[LOG_SOFTMAX_X].bind(LOG_SOFTMAX_X.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    # MUL
+    s[MUL].bind(MUL.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[MUL].bind(MUL.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    # SUM
+    s[SUM].bind(SUM.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[SUM].bind(a3, tvm.thread_axis("threadIdx.x"))
+
+    # MEAN
+    # s[MEAN].bind(a4, tvm.thread_axis("blockIdx.x"))
+    s[MEAN].bind(a4, tvm.thread_axis("threadIdx.x"))
+
+
+    # print(tvm.lower(s, [X, X_P, MEAN], simple_mode=True))
+
+    # block_x = tvm.thread_axis("blockIdx.x")
+    # thread_x = tvm.thread_axis("threadIdx.x")
+
+    # zo, zi = s[SUM].split(SUM.op.axis[0], 3)
+    # print(tvm.lower(s, [X, X_P, MEAN], simple_mode=True))
+    # s[SUM].bind(zo, block_x)
+    # s[SUM].bind(zi, thread_x)
+
     f = tvm.build(s, [X, X_P, MEAN], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -209,6 +345,14 @@ def make_reduce_sum_axis_zero(shape, tgt, tgt_host, func_name, dtype="float32"):
     C = topi.sum(A, axis=0, keepdims=False)
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    print(C.op.axis, C)
+    # s[C].bind(C.op.axis[0], block_x)
+    s[C].bind(C.op.axis[0], thread_x)
+
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
@@ -219,7 +363,18 @@ def make_broadcast_to(shape, to_shape, tgt, tgt_host, func_name,
     C = topi.broadcast_to(A, to_shape)
 
     s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(to_shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
     f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
+
+
+
     return _export_module(f, func_name, remote)
 
 
