@@ -638,7 +638,7 @@ class Executor(object):
         self.node_to_arr_map = dict()
         for node in self.topo_order:
             if node not in feed_shapes.keys():
-                self.node_to_arr_map[node] = tvm.ndarray.empty(self.node_to_shape_map[node])
+                self.node_to_arr_map[node] = tvm.ndarray.empty(self.node_to_shape_map[node], ctx=self.ctx)
 
     def compile_funcs(self, feed_shapes):
         """Compile tvm ops to native code.

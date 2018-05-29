@@ -167,8 +167,8 @@ def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
     k, = s[Z].op.reduce_axis
     ko, ki = s[Z].split(k, factor=5)
     s[Z].reorder(xo, yo, ko, xi, ki, yi)
-    s[Z].vectorize(yi)
-    s[Z].parallel(xo)
+    # s[Z].vectorize(yi)
+    # s[Z].parallel(xo)
 
     block_x = tvm.thread_axis("blockIdx.x")
     thread_x = tvm.thread_axis("threadIdx.x")

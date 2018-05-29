@@ -59,9 +59,36 @@ def load_mnist_data(dataset):
 
 def convert_to_one_hot(vals):
     """Helper method to convert label array to one-hot array."""
-    one_hot_vals = np.zeros((vals.size, vals.max()+1))
+    # one_hot_vals = np.zeros((vals.size, vals.max()+1))
+    one_hot_vals = np.zeros((vals.size, 10))
     one_hot_vals[np.arange(vals.size), vals] = 1
     return one_hot_vals
+
+
+def matmul(executor_ctx):
+    tgt = 'opencl'
+    tgt_host = 'llvm -target=aarch64-linux-android'
+
+    X = ad.Variable(name="X")
+    W1 = ad.Variable(name="W1")
+    y_ = ad.Variable(name="y_")
+
+    Y = ad.matmul_op(X, W1)
+
+    loss = ad.softmaxcrossentropy_op(Y, y_)
+    grad_W1, = ad.gradients(loss, [W1])
+    print("HELLLO", grad_W1)
+    executor = ad.Executor([Y, loss, grad_W1], ctx=executor_ctx)
+
+    X_val = tvm.nd.array(np.random.uniform(size=(1, 784)).astype("float32"), ctx=executor_ctx)
+    W1_val = tvm.nd.array(np.random.uniform(size=(784, 10)).astype("float32"), ctx=executor_ctx)
+    y_val = tvm.nd.array(np.array([1,0,0,0,0,0,0,0,0,0]).reshape((1,10)).astype("float32"), ctx=executor_ctx)
+
+    y_pred, loss_val = executor.run(feed_dict={X: X_val, W1: W1_val, y_: y_val})
+    print(y_pred)
+    print(loss_val)
+
+
 
 
 def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
@@ -89,6 +116,7 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
     loss = ad.softmaxcrossentropy_op(y, y_)
 
     grad_W1, grad_b1 = ad.gradients(loss, [W1, b1])
+    print(grad_W1)
     executor = ad.Executor([loss, grad_W1, grad_b1, y], ctx=executor_ctx)
 
     # Read input data
@@ -98,7 +126,7 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
     test_set_x, test_set_y = datasets[2]
 
     # Set up minibatch
-    batch_size = 1000
+    batch_size = 1
     n_train_batches = train_set_x.shape[0] // batch_size
     n_valid_batches = valid_set_x.shape[0] // batch_size
 
@@ -220,7 +248,7 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
     # Set up minibatch
-    batch_size = 1000
+    batch_size = 1
     n_train_batches = train_set_x.shape[0] // batch_size
     n_valid_batches = valid_set_x.shape[0] // batch_size
 
@@ -384,5 +412,8 @@ if __name__ == "__main__":
     print(executor_ctx.device_name)
 
     num_epochs = args.num_epoch
-    for m in models:
-        m(executor_ctx, num_epochs, print_loss_val_each_epoch)
+
+    matmul(executor_ctx)
+
+    # for m in models:
+    #     m(executor_ctx, num_epochs, print_loss_val_each_epoch)
