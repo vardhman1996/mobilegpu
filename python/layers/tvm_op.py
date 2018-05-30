@@ -59,6 +59,39 @@ def make_elemwise_mul(shape, tgt, tgt_host, func_name, dtype="float32"):
     f = tvm.build(s, [A, B, C], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
+def make_oneslike_op(shape, tgt, tgt_host, func_name, dtype="float32"):
+    """TODO: Your code here"""
+    A = tvm.placeholder(shape, dtype=dtype, name="A")
+    C = tvm.compute(A.shape, lambda *i: np.float32(1.0))
+
+    s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
+    f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
+    return _export_module(f, func_name, remote)
+
+def make_zeroslike_op(shape, tgt, tgt_host, func_name, dtype="float32"):
+    """TODO: Your code here"""
+    A = tvm.placeholder(shape, dtype=dtype, name="A")
+    C = tvm.compute(A.shape, lambda *i: np.float32(0.0))
+
+    s = tvm.create_schedule(C.op)
+
+    block_x = tvm.thread_axis("blockIdx.x")
+    thread_x = tvm.thread_axis("threadIdx.x")
+
+    s[C].bind(C.op.axis[0], block_x)
+    if len(shape) > 1:
+        s[C].bind(C.op.axis[1], thread_x)
+
+    f = tvm.build(s, [A, C], tgt, target_host=tgt_host, name=func_name)
+    return _export_module(f, func_name, remote)
 
 def make_elemwise_add_by_const(shape, const_k, tgt, tgt_host, func_name,
                                dtype="float32"):

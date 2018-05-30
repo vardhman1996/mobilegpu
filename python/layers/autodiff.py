@@ -65,6 +65,9 @@ def Variable(name):
 
 
 class Op(object):
+    def __init__(self):
+        self.i = 0
+
     """Op represents operations performed on nodes."""
     def __call__(self):
         """Create a new node and associate the op object with the node.
@@ -168,7 +171,8 @@ class AddOp(Op):
         return broadcast_rule(input_shapes[0], input_shapes[1])
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
-        name = 'elem_add'
+        name = 'elem_add_' + str(self.i)
+        self.i += 1
         return tvm_op.make_elemwise_add(
             input_shapes[0], tgt, tgt_host, name)
 
@@ -194,7 +198,8 @@ class AddByConstOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
-        name = 'const_add'
+        name = 'const_add_' + str(self.i)
+        self.i += 1
         return tvm_op.make_elemwise_add_by_const(
             input_shapes[0], node.const_attr, tgt, tgt_host, name)
 
@@ -220,7 +225,8 @@ class MulOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
-        name = 'elem_mul'
+        name = 'elem_mul_' + str(self.i)
+        self.i += 1
         return tvm_op.make_elemwise_mul(
             input_shapes[0], tgt, tgt_host, name)
 
@@ -245,7 +251,8 @@ class MulByConstOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
-        name = 'const_mul'
+        name = 'const_mul_' + str(self.i)
+        self.i += 1
         return tvm_op.make_elemwise_mul_by_const(
             input_shapes[0], node.const_attr, tgt, tgt_host, name)
 
@@ -312,11 +319,14 @@ class MatMulOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
-        name = 'mat_mul'
+        name = 'mat_mul_' + str(self.i)
+        self.i += 1
         return tvm_op.make_matrix_mul(
             input_shapes[0], node.matmul_attr_trans_A,
             input_shapes[1], node.matmul_attr_trans_B,
             tgt, tgt_host, func_name=name)
+
+
 
 class PlaceholderOp(Op):
     def __call__(self):
@@ -346,8 +356,7 @@ class ZerosLikeOp(Op):
 
     def compute(self, node, input_vals, output_val, compiled_func):
         assert len(input_vals) == 1
-        output_val.copyfrom(
-            np.zeros(input_vals[0].shape, dtype = input_vals[0].dtype))
+        compiled_func(input_vals[0], output_val)
 
     def gradient(self, node, output_grad):
         return [zeroslike_op(node.inputs[0])]
@@ -358,7 +367,9 @@ class ZerosLikeOp(Op):
         return input_shapes[0]
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
-        return None
+        name = 'zeroslike_op_' + str(self.i)
+        self.i += 1
+        return tvm_op.make_zeroslike_op(input_shapes[0], tgt, tgt_host, name)
 
 
 class OnesLikeOp(Op):
@@ -371,8 +382,7 @@ class OnesLikeOp(Op):
 
     def compute(self, node, input_vals, output_val, compiled_func):
         assert len(input_vals) == 1
-        output_val.copyfrom(
-            np.ones(input_vals[0].shape, dtype = input_vals[0].dtype))
+        compiled_func(input_vals[0], output_val)
 
     def gradient(self, node, output_grad):
         return [zeroslike_op(node.inputs[0])]
@@ -383,7 +393,9 @@ class OnesLikeOp(Op):
         return input_shapes[0]
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
-        return None
+        name = 'oneslike_op_' + str(self.i)
+        self.i += 1
+        return tvm_op.make_oneslike_op(input_shapes[0], tgt, tgt_host, name)
 
 
 class ReduceSumAxisZeroOp(Op):
@@ -414,8 +426,10 @@ class ReduceSumAxisZeroOp(Op):
         return input_shapes[0][1:]
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
+        name = 'reduce_sum_axis_zero_' + str(self.i)
+        self.i += 1
         return tvm_op.make_reduce_sum_axis_zero(
-            input_shapes[0], tgt, tgt_host, "reduce_sum_axis_zero")
+            input_shapes[0], tgt, tgt_host, name)
 
 
 class BroadcastToOp(Op):
@@ -443,8 +457,10 @@ class BroadcastToOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'broadcast_to_' + str(self.i)
+        self.i += 1
         return tvm_op.make_broadcast_to(
-            input_shapes[0], input_shapes[1], tgt, tgt_host, 'broadcast_to')
+            input_shapes[0], input_shapes[1], tgt, tgt_host, name)
 
 def softmax_func(y):
     """Numerically stable softmax."""
@@ -479,8 +495,10 @@ class SoftmaxCrossEntropyOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'softmax_cross_entropy_' + str(self.i)
+        self.i += 1
         return tvm_op.make_matrix_softmax_cross_entropy(
-            input_shapes[0], tgt, tgt_host, func_name='softmax_cross_entropy')
+            input_shapes[0], tgt, tgt_host, func_name=name)
 
 class SoftmaxOp(Op):
     def __call__(self, node_A):
@@ -504,8 +522,10 @@ class SoftmaxOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'softmax_' + str(self.i)
+        self.i += 1
         return tvm_op.make_matrix_softmax(
-            input_shapes[0], tgt, tgt_host, func_name="softmax")
+            input_shapes[0], tgt, tgt_host, func_name=name)
 
 
 class ReluOp(Op):
@@ -527,8 +547,10 @@ class ReluOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'relu_' + str(self.i)
+        self.i += 1
         return tvm_op.make_relu(
-               input_shapes[0], tgt, tgt_host, func_name='relu')
+               input_shapes[0], tgt, tgt_host, func_name=name)
 
 
 class ReluGradientOp(Op):
@@ -551,8 +573,10 @@ class ReluGradientOp(Op):
 
     def compiled_func(self, node, input_shapes, tgt, tgt_host):
         """TODO: Your code here"""
+        name = 'relu_grad_' + str(self.i)
+        self.i += 1
         return tvm_op.make_relu_gradient(
-            input_shapes[0], tgt, tgt_host, func_name='relu_grad')
+            input_shapes[0], tgt, tgt_host, func_name=name)
 
 # Create global singletons of operators.
 add_op = AddOp()
@@ -638,7 +662,7 @@ class Executor(object):
         self.node_to_arr_map = dict()
         for node in self.topo_order:
             if node not in feed_shapes.keys():
-                self.node_to_arr_map[node] = tvm.ndarray.empty(self.node_to_shape_map[node], ctx=self.ctx)
+                self.node_to_arr_map[node] = tvm.ndarray.empty(self.node_to_shape_map[node], ctx=self.ctx, dtype="float32")
 
     def compile_funcs(self, feed_shapes):
         """Compile tvm ops to native code.
@@ -653,11 +677,12 @@ class Executor(object):
         """TODO: Your code here"""
         self.node_to_compiled_func = dict()
         for node in self.topo_order:
+            print("COMPILE_FUNC     ", node.name, node.op)
             if node in feed_shapes.keys():
                 self.node_to_compiled_func[node] = node.op.compiled_func(
                     node, feed_shapes[node], self.tgt, self.tgt_host)
             else:
-                print(node.name)
+                # self.topo_order.pop(-1)
                 # if 'SoftmaxXEntropy' in node.name:
                 #     continue
                 input_shapes = [self.node_to_shape_map[node_in] for node_in in node.inputs]

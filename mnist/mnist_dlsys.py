@@ -78,13 +78,15 @@ def matmul(executor_ctx):
     loss = ad.softmaxcrossentropy_op(Y, y_)
     grad_W1, = ad.gradients(loss, [W1])
     print("HELLLO", grad_W1)
+    print()
     executor = ad.Executor([Y, loss, grad_W1], ctx=executor_ctx)
 
-    X_val = tvm.nd.array(np.random.uniform(size=(1, 784)).astype("float32"), ctx=executor_ctx)
-    W1_val = tvm.nd.array(np.random.uniform(size=(784, 10)).astype("float32"), ctx=executor_ctx)
-    y_val = tvm.nd.array(np.array([1,0,0,0,0,0,0,0,0,0]).reshape((1,10)).astype("float32"), ctx=executor_ctx)
+    X_val = tvm.nd.array(np.ones((1, 784)).astype("float32"), ctx=executor_ctx)
+    W1_val = tvm.nd.array(np.zeros((784, 10)).astype("float32"), ctx=executor_ctx)
+    y_val = tvm.nd.array(np.zeros((1,10)).astype("float32"), ctx=executor_ctx)
+    # y_val_copy = tvm.nd.array(np.zeros((1,10)).astype("float32"), ctx=executor_ctx)
 
-    y_pred, loss_val = executor.run(feed_dict={X: X_val, W1: W1_val, y_: y_val})
+    y_pred, loss_val, _ = executor.run(feed_dict={X: X_val, W1: W1_val, y_: y_val})
     print(y_pred)
     print(loss_val)
 
@@ -126,7 +128,7 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
     test_set_x, test_set_y = datasets[2]
 
     # Set up minibatch
-    batch_size = 1
+    batch_size = 1000
     n_train_batches = train_set_x.shape[0] // batch_size
     n_valid_batches = valid_set_x.shape[0] // batch_size
 
@@ -162,10 +164,13 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
         for minibatch_index in range(n_train_batches):
             minibatch_start = minibatch_index * batch_size
             minibatch_end = (minibatch_index + 1) * batch_size
-            X_val =  tvm.nd.array(train_set_x[minibatch_start:minibatch_end], ctx=executor_ctx)
-            y_val =  tvm.nd.array(convert_to_one_hot(train_set_y[minibatch_start:minibatch_end]), ctx=executor_ctx)
+            X_val =  tvm.nd.array(train_set_x[minibatch_start:minibatch_end].astype(np.float32), ctx=executor_ctx)
+            y_val =  tvm.nd.array(convert_to_one_hot(train_set_y[minibatch_start:minibatch_end]).astype(np.float32), ctx=executor_ctx)
             loss_val, grad_W1_val, grad_b1_val, _ = executor.run(
                 feed_dict = {X: X_val, y_: y_val, W1: W1_val, b1: b1_val})
+
+            print("ep: {} minibatch_in {} loss {}".format(i, minibatch_index * batch_size, loss_val))
+
             # SGD update
             # W1_val = W1_val - lr * grad_W1_val
             # b1_val = b1_val - lr * grad_b1_val
@@ -413,7 +418,7 @@ if __name__ == "__main__":
 
     num_epochs = args.num_epoch
 
-    matmul(executor_ctx)
+    # matmul(executor_ctx)
 
-    # for m in models:
-    #     m(executor_ctx, num_epochs, print_loss_val_each_epoch)
+    for m in models:
+        m(executor_ctx, 1, print_loss_val_each_epoch=True)
