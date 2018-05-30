@@ -173,7 +173,7 @@ def make_relu_gradient(shape, tgt, tgt_host, func_name, dtype="float32"):
     return _export_module(f, func_name, remote)
 
 def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
-                    func_name, dtype="float32"):
+                    func_name, dtype="float32", args_opt={'x_f': 16, 'y_f':16, 'k_f': 16}):
     """TODO: Your code here"""
     """Hint: use tvm.reduce_axis, tvm.sum"""
     """Hint: treat 4 cases of transposeA, transposeB separately"""
@@ -195,19 +195,20 @@ def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
         k = tvm.reduce_axis((0, shapeA[0]), name='k')
         Z = tvm.compute((shapeA[1], shapeB[0]), lambda i, j: tvm.sum(X[k, i] * Y[j, k], axis=k), name='Z')
 
+    x_f = args_opt['x_f']
+    y_f = args_opt['y_f']
+    k_f = args_opt['k_f']
+
     s = tvm.create_schedule(Z.op)
-    xo, yo, xi, yi = s[Z].tile(Z.op.axis[0], Z.op.axis[1], 8, 8)
+    xo, yo, xi, yi = s[Z].tile(Z.op.axis[0], Z.op.axis[1], x_f, y_f)
     k, = s[Z].op.reduce_axis
-    ko, ki = s[Z].split(k, factor=5)
+    ko, ki = s[Z].split(k, factor=k_f)
     s[Z].reorder(xo, yo, ko, xi, ki, yi)
-    # s[Z].vectorize(yi)
-    # s[Z].parallel(xo)
+    s[Z].vectorize(yi)
 
-    block_x = tvm.thread_axis("blockIdx.x")
-    thread_x = tvm.thread_axis("threadIdx.x")
+    s[Z].bind(xo, tvm.thread_axis("blockIdx.x"))
+    s[Z].bind(yo, tvm.thread_axis("threadIdx.x"))
 
-    s[Z].bind(xo, block_x)
-    s[Z].bind(yo, thread_x)
     # print(tvm.lower(s, [X, Y, Z], simple_mode=True))
     # s[Z].bind(xi, block_x)
     # if len(Z.op.axis) > 1:

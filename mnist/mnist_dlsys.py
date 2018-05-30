@@ -9,6 +9,7 @@ import tvm
 from tvm.contrib import rpc, util, ndk
 from layers import autodiff as ad
 from layers import tvm_op
+import csv
 
 print(tvm.__file__)
 
@@ -64,8 +65,123 @@ def convert_to_one_hot(vals):
     one_hot_vals[np.arange(vals.size), vals] = 1
     return one_hot_vals
 
+print('shapeA', 'shapeB', 'x_f', 'y_f', 'k_f', 'time_taken')
 
-def matmul(executor_ctx):
+def exp_per_mat_mul(shapeA, shapeB, executor_ctx, writer):
+    x_f_all = range(1, 33)
+    y_f_all = range(1, 9)
+    k_f_all = range(1, 33)
+
+    tgt = 'opencl'
+    tgt_host = 'llvm -target=aarch64-linux-android'
+
+    for x_f in x_f_all:
+        for y_f in y_f_all:
+            for k_f in k_f_all:
+                if y_f < min(x_f, k_f):
+                    args_opt = {'x_f': x_f, 'y_f': y_f, 'k_f': k_f}
+                    A = tvm.nd.array(np.random.uniform(0, 10, size=shapeA).astype("float32"), ctx=executor_ctx)
+                    B = tvm.nd.array(np.random.uniform(0, 10, size=shapeB).astype("float32"), ctx=executor_ctx)
+                    shapeOut = (shapeA[0], shapeB[1])
+                    Out = tvm.nd.array(np.zeros(shapeOut).astype("float32"), ctx=executor_ctx)
+                    id = str(shapeA[0]) + '_' + str(shapeA[1]) + '_' + str(shapeB[0]) + '_' + str(shapeB[1]) + '_' + str(x_f) + '_' + str(y_f) + '_' + str(k_f)
+                    matrix_mul = tvm_op.make_matrix_mul(shapeA, False, shapeB, False, tgt, tgt_host, "matrix_mul_" + id, args_opt=args_opt)
+                    start_time = time.time()
+                    matrix_mul(A, B, Out)
+                    total_time = time.time() - start_time
+                    print('', total_time)
+                    writer.writerow([str(shapeA), str(shapeB), x_f, y_f, k_f, total_time])
+
+
+def exp_matrix_multiply(ctx):
+    shapeW1 = (784, 256)
+    shapeW2 = (256, 100)
+    shapeW3 = (100, 10)
+
+    batches = [500, 1000, 2000, 3000, 4000, 5000]
+
+    X_shapes_W1 = [(ele, 784) for ele in batches]
+    # X_shapes_W2 = [(ele, 256) for ele in batches]
+    # X_shapes_W3 = [(ele, 784) for ele in batches]
+
+    all_muls_W1 = [(ele_x, shapeW1) for ele_x in X_shapes_W1]
+    # all_muls_W2 = [((ele_x[0], shapeW2[0]), shapeW2) for ele_x in X_shapes]
+    # all_muls_W3 = [((ele_x[0], shapeW3[0]), shapeW3) for ele_x in X_shapes]
+
+    # all_muls.append((shapeW1, shapeW2))
+    # all_muls.append((shapeW2, shapeW3))
+
+    with open('exp_mat_mul.csv', 'w', newline='') as csvfile:
+        csv_writer = csv.writer(csvfile, delimiter='|')
+        csv_writer.writerow(['shapeA', 'shapeB', 'x_f', 'y_f', 'k_f', 'time_taken'])
+        for shapeA, shapeB in all_muls_W1:
+            exp_per_mat_mul(shapeA, shapeB, ctx, csv_writer)
+            print('Done combnation', shapeA, shapeB)
+
+
+
+
+    x = np.random.uniform(0, 10, size=shapeX).astype("float32")
+    y = np.random.uniform(0, 10, size=shapeY).astype("float32")
+
+    z = np.zeros(shapeZ).astype("float32")
+    arr_x = tvm.nd.array(x, ctx=ctx)
+    arr_y = tvm.nd.array(y, ctx=ctx)
+    arr_z = tvm.nd.array(z, ctx=ctx)
+
+    matrix_mul = tvm_op.make_matrix_mul(shapeX, False, shapeY, False, tgt, tgt_host, "matrix_mul")
+    matrix_mul(arr_x, arr_y, arr_z)
+    z = arr_z.asnumpy()
+    np.testing.assert_allclose(np.dot(x, y), z, rtol=1e-5)
+
+    shapeX = (1000, 500)
+    shapeY = (2000, 500)
+    shapeZ = (1000, 2000)
+    x = np.random.uniform(0, 10, size=shapeX).astype(dtype)
+    y = np.random.uniform(0, 10, size=shapeY).astype(dtype)
+    z = np.zeros(shapeZ).astype(dtype)
+    arr_x = tvm.nd.array(x, ctx=ctx)
+    arr_y = tvm.nd.array(y, ctx=ctx)
+    arr_z = tvm.nd.array(z, ctx=ctx)
+
+    matrix_mul = tvm_op.make_matrix_mul(shapeX, False, shapeY, True, tgt, tgt_host, "matrix_mul")
+    matrix_mul(arr_x, arr_y, arr_z)
+    z = arr_z.asnumpy()
+    np.testing.assert_allclose(np.dot(x, np.transpose(y)), z, rtol=1e-5)
+
+    shapeX = (500, 1000)
+    shapeY = (500, 2000)
+    shapeZ = (1000, 2000)
+    x = np.random.uniform(0, 10, size=shapeX).astype(dtype)
+    y = np.random.uniform(0, 10, size=shapeY).astype(dtype)
+    z = np.zeros(shapeZ).astype(dtype)
+    arr_x = tvm.nd.array(x, ctx=ctx)
+    arr_y = tvm.nd.array(y, ctx=ctx)
+    arr_z = tvm.nd.array(z, ctx=ctx)
+
+    matrix_mul = tvm_op.make_matrix_mul(shapeX, True, shapeY, False, tgt, tgt_host, "matrix_mul")
+    matrix_mul(arr_x, arr_y, arr_z)
+    z = arr_z.asnumpy()
+    np.testing.assert_allclose(np.dot(np.transpose(x), y), z, rtol=1e-5)
+
+    shapeX = (500, 1000)
+    shapeY = (2000, 500)
+    shapeZ = (1000, 2000)
+    x = np.random.uniform(0, 10, size=shapeX).astype(dtype)
+    y = np.random.uniform(0, 10, size=shapeY).astype(dtype)
+    z = np.zeros(shapeZ).astype(dtype)
+    arr_x = tvm.nd.array(x, ctx=ctx)
+    arr_y = tvm.nd.array(y, ctx=ctx)
+    arr_z = tvm.nd.array(z, ctx=ctx)
+
+    matrix_mul = tvm_op.make_matrix_mul(shapeX, True, shapeY, True, tgt, tgt_host, "matrix_mul")
+    matrix_mul(arr_x, arr_y, arr_z)
+    z = arr_z.asnumpy()
+    np.testing.assert_allclose(np.dot(np.transpose(x), np.transpose(y)), z, rtol=1e-5)
+
+
+
+def matmul_exps(executor_ctx):
     tgt = 'opencl'
     tgt_host = 'llvm -target=aarch64-linux-android'
 
@@ -209,12 +325,14 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
               print_loss_val_each_epoch=False):
     print("=== Build 3-layer MLP model...")
 
+    tgt = 'opencl'
+    tgt_host = 'llvm -target=aarch64-linux-android'
     # recover tgt, tgt_host info from tvm.context
-    if executor_ctx == tvm.cpu(0):
-        tgt = "llvm"
-        tgt_host = "llvm"
-    else:
-        assert False, "non-CPU context not yet supported"
+    # if executor_ctx == tvm.cpu(0):
+    #     tgt = "llvm"
+    #     tgt_host = "llvm"
+    # else:
+    #     assert False, "non-CPU context not yet supported"
 
     W1 = ad.Variable(name="W1")
     W2 = ad.Variable(name="W2")
@@ -224,6 +342,7 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
     b3 = ad.Variable(name="b3")
     X = ad.Variable(name="X")
     y_ = ad.Variable(name="y_")
+
 
     # relu(X W1+b1)
     z1 = ad.matmul_op(X, W1)
@@ -253,7 +372,7 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
     # Set up minibatch
-    batch_size = 1
+    batch_size = 1000
     n_train_batches = train_set_x.shape[0] // batch_size
     n_valid_batches = valid_set_x.shape[0] // batch_size
 
@@ -304,6 +423,7 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
         print("epoch %d" % i)
         start_time = time.time()
         for minibatch_index in range(n_train_batches):
+            start_time_mb = time.time()
             minibatch_start = minibatch_index * batch_size
             minibatch_end = (minibatch_index + 1) * batch_size
             X_val.copyfrom(train_set_x[minibatch_start:minibatch_end])
@@ -333,7 +453,9 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
             b1_sgd_update_func(b1_val, grad_b1_val, b1_val)
             b2_sgd_update_func(b2_val, grad_b2_val, b2_val)
             b3_sgd_update_func(b3_val, grad_b3_val, b3_val)
-        
+
+            print("ep: {} minibatch_in {} loss {}".format(i, minibatch_index * batch_size, loss_val), 'time taken', time.time() - start_time_mb)
+
         time_measurements.append(time.time() - start_time)
         if print_loss_val_each_epoch:
             print("loss = %f; Time taken this epoch = %f s" 
@@ -419,6 +541,6 @@ if __name__ == "__main__":
     num_epochs = args.num_epoch
 
     # matmul(executor_ctx)
-
-    for m in models:
-        m(executor_ctx, 1, print_loss_val_each_epoch=True)
+    exp_matrix_multiply(executor_ctx)
+    # for m in models:
+    #     m(executor_ctx, 1, print_loss_val_each_epoch=True)
