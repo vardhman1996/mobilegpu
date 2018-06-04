@@ -285,6 +285,23 @@ def mnist_logreg(executor_ctx, num_epochs=10, print_loss_val_each_epoch=False):
     print("Average Time per Training Epoch = %f s" % np.mean(time_measurements))
     
 
+def matmul(shapeX, shapeY, shapeOut, executor_ctx):
+    print("=== Matrix Multiplication ===")
+
+
+    X = tvm.nd.array(np.ones(shapeX).astype("float32") * 2, ctx=executor_ctx)
+    Y = tvm.nd.array(np.ones(shapeY).astype("float32") * 3, ctx=executor_ctx)
+
+    Out = tvm.nd.array(np.zeros(shapeOut).astype("float32"), ctx=executor_ctx)
+    id = str(shapeX[0]) + '_' + str(shapeX[1]) + '_' + str(shapeY[0]) + '_' + str(shapeY[1])
+    matmul_op = tvm_op.make_matrix_mul_2(shapeX, shapeY, tgt, tgt_host, "matmul2" + id, dtype="float32")
+    start_time = time.time()
+    matmul_op(X, Y, Out)
+    total_time = time.time() - start_time
+    print(total_time)
+    print(Out)
+
+
 def mnist_mlp(executor_ctx=None, num_epochs=10,
               print_loss_val_each_epoch=True):
     print("=== Build 3-layer MLP model...")
@@ -330,7 +347,7 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
     # Set up minibatch
-    batch_size = 500
+    batch_size = 1500
     n_train_batches = train_set_x.shape[0] // batch_size
     n_valid_batches = valid_set_x.shape[0] // batch_size
 
@@ -500,6 +517,8 @@ if __name__ == "__main__":
 
     # matmul(executor_ctx)
     # exp_conv2d(executor_ctx)
+    shape=(1024, 1024)
+    # matmul(shape, shape, shape, executor_ctx)
     mnist_mlp(executor_ctx, num_epochs=5)
 
     # for m in models:

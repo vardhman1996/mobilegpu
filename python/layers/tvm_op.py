@@ -172,6 +172,111 @@ def make_relu_gradient(shape, tgt, tgt_host, func_name, dtype="float32"):
     f = tvm.build(s, [A, grad, relu_grad], tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 
+def make_matrix_mul_2(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
+                    func_name, dtype="float32"):
+    # assert shapeA[0] == shapeA[1]
+    # assert shapeB[0] == shapeB[1]
+
+    X = tvm.placeholder(shapeA, dtype=dtype, name='X')
+    Y = tvm.placeholder(shapeB, dtype=dtype, name='Y')
+
+    if not transposeA and not transposeB:
+        k = tvm.reduce_axis((0, shapeA[1]), name='k')
+        Z = tvm.compute((shapeA[0], shapeB[1]), lambda i, j: tvm.sum(X[i, k] * Y[k, j], axis=k), name='Z')
+    elif not transposeA and transposeB:
+        k = tvm.reduce_axis((0, shapeA[1]), name='k')
+        Z = tvm.compute((shapeA[0], shapeB[0]), lambda i, j: tvm.sum(X[i, k] * Y[j, k], axis=k), name='Z')
+    elif transposeA and not transposeB:
+        k = tvm.reduce_axis((0, shapeA[0]), name='k')
+        Z = tvm.compute((shapeA[1], shapeB[1]), lambda i, j: tvm.sum(X[k, i] * Y[k, j], axis=k), name='Z')
+    elif transposeA and transposeB:
+        k = tvm.reduce_axis((0, shapeA[0]), name='k')
+        Z = tvm.compute((shapeA[1], shapeB[0]), lambda i, j: tvm.sum(X[k, i] * Y[j, k], axis=k), name='Z')
+
+    s = tvm.create_schedule(Z.op)
+    # X_shared = s.cache_read(X, 'shared', [Z])  # should store (step * block_factor) items
+    # Y_shared = s.cache_read(Y, 'shared', [Z])
+    # X_local = s.cache_read(X_shared, 'local', [Z])
+    # Y_local = s.cache_read(Y_shared, 'local', [Z])
+    # Z_local = s.cache_write(Z, 'local')
+
+    # tile consts
+    tile = 2
+    num_thread = 8
+    block_factor = tile * num_thread
+    step = 8
+    vthread = 2
+
+    block_x = tvm.thread_axis("blockIdx.x", name='bx')
+    block_y = tvm.thread_axis("blockIdx.y", name='by')
+    thread_x = tvm.thread_axis((0, num_thread), "threadIdx.x", name='tx')
+    thread_y = tvm.thread_axis((0, num_thread), "threadIdx.y", name='ty')
+    vthread_x = tvm.thread_axis((0, vthread), "vthread", name="vtx")
+    vthread_y = tvm.thread_axis((0, vthread), "vthread", name="vty")
+
+    # Split the workloads into blocks of threads
+    hi, wi = s[Z].op.axis
+    bx, wi = s[Z].split(wi, factor=block_factor) # wi ranges up to block_factor
+    by, hi = s[Z].split(hi, factor=block_factor) # hi ranges up to block_factor
+
+    s[Z].bind(bx, block_x) # bx number of blocks.
+    s[Z].bind(by, block_y)
+
+    # Split into virtual threads (vthread x vthread) grid
+    vtx, wi = s[Z].split(wi, nparts=vthread) # vtx ranges up to vthread. wi ranges up to (block_factor/vthread)
+    vty, hi = s[Z].split(hi, nparts=vthread) # vty ranges up to vthread. hi ranges up to (block_factor/vthread)
+
+    # Split each vthread block into threads (num_thread x num_thread) grid
+    tx, wi = s[Z].split(wi, nparts=num_thread) # tx ranges up to vthread. wi ranges up to (block_factor/vthread/num_thread)
+    ty, hi = s[Z].split(hi, nparts=num_thread)  # ty ranges up to vthread. hi ranges up to (block_factor/vthread/num_thread)
+
+    # Reorder from block to vthread to thread. Decreasing order of size of submatrix to be controlled
+    s[Z].reorder(by, bx, vty, vtx, ty, tx)
+
+    s[Z].bind(vty, vthread_y)
+    s[Z].bind(vtx, vthread_x)
+    s[Z].bind(tx, thread_x)
+    s[Z].bind(ty, thread_y)
+
+    # # Schedule Z_local local write
+    # s[Z_local].compute_at(s[Z], tx) # In the computation of Z, when looping over tx (inner most and smallest granule), compute Z_local, which is a write to local memory
+    # hi, wi = s[Z_local].op.axis
+    # k, = s[Z_local].op.reduce_axis
+    # ko, ki = s[Z_local].split(k, factor=step)
+    # s[Z_local].reorder(ko, ki, hi, wi) # May be unnecessary
+    #
+    # # Attach computation to iteration variables
+    #
+    # s[X_shared].compute_at(s[Z_local], wi)
+    # # s[Y_shared].compute_at(s[Z_local], hi)
+    #
+    # s[X_local].compute_at(s[Z_local], ki)
+    # s[Y_local].compute_at(s[Z_local], ki)
+    #
+    # # Schedule for X's shared memory load
+    # hi, wi =  s[X_shared].op.axis
+    # ty, hi = s[X_shared].split(hi, nparts=num_thread)
+    # tx, wi = s[X_shared].split(wi, nparts=num_thread)
+    # _, wi = s[X_shared].split(wi, factor=4) # Is this 4 because of vthread = 2, vthread*vthread?
+    # s[X_shared].reorder(ty, tx, hi, wi)
+    # # tvm.lower(s, [X, Y, Z], simple_mode=True)
+    # s[X_shared].bind(tx, thread_x)
+    # s[X_shared].bind(ty, thread_y)
+    # s[X_shared].vectorize(wi)
+    #
+    # # Schedule for Y's shared memory load
+    # hi, wi = s[Y_shared].op.axis
+    # ty, hi = s[Y_shared].split(hi, nparts=num_thread)
+    # tx, wi = s[Y_shared].split(wi, nparts=num_thread)
+    # _, wi = s[Y_shared].split(wi, factor=4)  # Is this 4 because of vthread = 2, vthread*vthread?
+    # s[Y_shared].reorder(ty, tx, hi, wi)
+    # s[Y_shared].bind(tx, thread_x)
+    # s[Y_shared].bind(ty, thread_y)
+    # s[Y_shared].vectorize(wi)
+
+    f = tvm.build(s, [X, Y, Z], target=tgt, target_host=tgt_host, name=func_name)
+    return _export_module(f, func_name, remote)
+
 def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
                     func_name, dtype="float32", args_opt={'x_f': 8, 'y_f':1, 'k_f': 8}):
     """TODO: Your code here"""
@@ -268,6 +373,8 @@ def make_conv2d_unoptimized(shapeX, shapeF, tgt, tgt_host, func_name, dtype="flo
 def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
     in_size, in_size, in_channel, batch = shapeX
     kernel, kernel, in_channel, out_channel  = shapeF
+
+    print(tgt, tgt_host)
 
     """TODO: Your code here"""
     """Hint: use tvm.reduce_axis, tvm.sum"""

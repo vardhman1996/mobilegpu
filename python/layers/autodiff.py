@@ -321,7 +321,7 @@ class MatMulOp(Op):
         """TODO: Your code here"""
         name = 'mat_mul_' + str(self.i)
         self.i += 1
-        return tvm_op.make_matrix_mul(
+        return tvm_op.make_matrix_mul_2(
             input_shapes[0], node.matmul_attr_trans_A,
             input_shapes[1], node.matmul_attr_trans_B,
             tgt, tgt_host, func_name=name)
