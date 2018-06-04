@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import os
 import seaborn as sns
 sns.set()
-df = pd.read_csv('../exp_mat_mul_3.csv', sep='|')
+df = pd.read_csv('../exp_mat_mul_3000_batch.csv', sep='|')
 
 set_batches = set([(shapeA, shapeB) for shapeA, shapeB in zip(df['shapeA'], df['shapeB'])])
 
