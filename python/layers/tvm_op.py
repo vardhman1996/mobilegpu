@@ -274,6 +274,8 @@ def make_matrix_mul_2(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
     # s[Y_shared].bind(ty, thread_y)
     # s[Y_shared].vectorize(wi)
 
+    # s[Z].vectorize(tx)
+
     f = tvm.build(s, [X, Y, Z], target=tgt, target_host=tgt_host, name=func_name)
     return _export_module(f, func_name, remote)
 

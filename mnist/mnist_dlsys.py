@@ -102,14 +102,14 @@ def exp_per_conv2d(shapeX, shapeW, shapeOut, executor_ctx, writer):
     Out = tvm.nd.array(np.zeros(shapeOut).astype("float32"), ctx=executor_ctx)
     id = str(shapeX[0]) + '_' + str(shapeX[1]) + '_' + str(shapeW[0]) + '_' + str(shapeW[1])
 
-    conv2d_op = tvm_op.make_conv2d(shapeX, shapeW, tgt, tgt_host, "conv2d_" + id, dtype="float32")
+    conv2d_op = tvm_op.make_conv2d_unoptimized(shapeX, shapeW, tgt, tgt_host, "conv2d_" + id, dtype="float32")
     start_time = time.time()
     conv2d_op(X, W, Out)
     total_time = time.time() - start_time
     writer.writerow([str(shapeX), str(shapeW), total_time])
 
 def exp_conv2d(ctx):
-    batches = [200]
+    batches = [900]
     in_channel = 3
     out_channel = 10
     in_size = 100
@@ -124,7 +124,7 @@ def exp_conv2d(ctx):
         shapeX = (in_size, in_size, in_channel, batch)
 
         shapeOut = (out_size, out_size, out_channel, batch)
-        with open('exp_conv2d_{}.csv'.format(batches[0]), 'w', newline='') as csvfile:
+        with open('exp_conv2d_unopt_{}.csv'.format(batch), 'w', newline='') as csvfile:
             csv_writer = csv.writer(csvfile, delimiter='|')
             csv_writer.writerow(['shapeX', 'shapeW', 'time_taken'])
             exp_per_conv2d(shapeX, shapeW, shapeOut, ctx, csv_writer)
@@ -347,7 +347,7 @@ def mnist_mlp(executor_ctx=None, num_epochs=10,
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
     # Set up minibatch
-    batch_size = 1500
+    batch_size = 100
     n_train_batches = train_set_x.shape[0] // batch_size
     n_valid_batches = valid_set_x.shape[0] // batch_size
 
@@ -517,7 +517,7 @@ if __name__ == "__main__":
 
     # matmul(executor_ctx)
     # exp_conv2d(executor_ctx)
-    shape=(1024, 1024)
+    # shape=(1024, 1024)
     # matmul(shape, shape, shape, executor_ctx)
     mnist_mlp(executor_ctx, num_epochs=5)
 
