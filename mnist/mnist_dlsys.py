@@ -95,6 +95,41 @@ def exp_per_mat_mul(shapeA, shapeB, executor_ctx, writer):
                     total_time = time.time() - start_time
                     writer.writerow([str(shapeA), str(shapeB), x_f, y_f, k_f, total_time])
 
+def exp_per_conv2d(shapeX, shapeW, shapeOut, executor_ctx, writer):
+    X = tvm.nd.array(np.random.uniform(0, 10, size=shapeX).astype("float32"), ctx=executor_ctx)
+    W = tvm.nd.array(np.random.uniform(0, 10, size=shapeW).astype("float32"), ctx=executor_ctx)
+
+    Out = tvm.nd.array(np.zeros(shapeOut).astype("float32"), ctx=executor_ctx)
+    id = str(shapeX[0]) + '_' + str(shapeX[1]) + '_' + str(shapeW[0]) + '_' + str(shapeW[1])
+
+    conv2d_op = tvm_op.make_conv2d(shapeX, shapeW, tgt, tgt_host, "conv2d_" + id, dtype="float32")
+    start_time = time.time()
+    conv2d_op(X, W, Out)
+    total_time = time.time() - start_time
+    writer.writerow([str(shapeX), str(shapeW), total_time])
+
+def exp_conv2d(ctx):
+    batches = [500, 1000, 2000]
+    in_channel = 3
+    out_channel = 10
+    in_size = 100
+    kernel = 3
+    pad = 1
+    stride = 1
+    out_size = (in_size - kernel + 2 * pad) // stride + 1
+
+    for batch in batches:
+        shapeW = (kernel, kernel, in_channel, out_channel)
+
+        shapeX = (in_size, in_size, in_channel, batch)
+
+        shapeOut = (out_size, out_size, out_channel, batch)
+        with open('exp_mat_mul_{}_batch.csv'.format(batches[0]), 'w', newline='') as csvfile:
+            csv_writer = csv.writer(csvfile, delimiter='|')
+            csv_writer.writerow(['shapeX', 'shapeW', 'time_taken'])
+            exp_per_conv2d(shapeX, shapeW, shapeOut, ctx, csv_writer)
+            print('Done combnation', shapeX, shapeW)
+
 
 def exp_matrix_multiply(ctx):
     shapeW1 = (784, 256)
@@ -113,6 +148,7 @@ def exp_matrix_multiply(ctx):
         for shapeA, shapeB in tqdm(all_muls_W1):
             exp_per_mat_mul(shapeA, shapeB, ctx, csv_writer)
             print('Done combnation', shapeA, shapeB)
+
 
 
 
