@@ -109,7 +109,7 @@ def exp_per_conv2d(shapeX, shapeW, shapeOut, executor_ctx, writer):
     writer.writerow([str(shapeX), str(shapeW), total_time])
 
 def exp_conv2d(ctx):
-    batches = [500, 1000, 2000]
+    batches = [200]
     in_channel = 3
     out_channel = 10
     in_size = 100
@@ -124,7 +124,7 @@ def exp_conv2d(ctx):
         shapeX = (in_size, in_size, in_channel, batch)
 
         shapeOut = (out_size, out_size, out_channel, batch)
-        with open('exp_mat_mul_{}_batch.csv'.format(batches[0]), 'w', newline='') as csvfile:
+        with open('exp_conv2d_{}.csv'.format(batches[0]), 'w', newline='') as csvfile:
             csv_writer = csv.writer(csvfile, delimiter='|')
             csv_writer.writerow(['shapeX', 'shapeW', 'time_taken'])
             exp_per_conv2d(shapeX, shapeW, shapeOut, ctx, csv_writer)
@@ -499,6 +499,8 @@ if __name__ == "__main__":
     num_epochs = args.num_epoch
 
     # matmul(executor_ctx)
+    # exp_conv2d(executor_ctx)
     mnist_mlp(executor_ctx, num_epochs=5)
+
     # for m in models:
     #     m(executor_ctx, 1, print_loss_val_each_epoch=True)

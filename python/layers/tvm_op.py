@@ -195,21 +195,25 @@ def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
         k = tvm.reduce_axis((0, shapeA[0]), name='k')
         Z = tvm.compute((shapeA[1], shapeB[0]), lambda i, j: tvm.sum(X[k, i] * Y[j, k], axis=k), name='Z')
 
-    # x_f = args_opt['x_f']
-    # y_f = args_opt['y_f']
-    # k_f = args_opt['k_f']
+    x_f = args_opt['x_f']
+    y_f = args_opt['y_f']
+    k_f = args_opt['k_f']
 
     s = tvm.create_schedule(Z.op)
-    # xo, yo, xi, yi = s[Z].tile(Z.op.axis[0], Z.op.axis[1], x_f, y_f)
-    # k, = s[Z].op.reduce_axis
-    # ko, ki = s[Z].split(k, factor=k_f)
-    # s[Z].reorder(xo, yo, ko, xi, ki, yi)
-    # s[Z].vectorize(yi)
-    #
-    # s[Z].bind(xo, tvm.thread_axis("blockIdx.x"))
-    # s[Z].bind(yo, tvm.thread_axis("threadIdx.x"))
+    xo, yo, xi, yi = s[Z].tile(Z.op.axis[0], Z.op.axis[1], x_f, y_f)
 
-    s[Z].bind(Z.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    k, = s[Z].op.reduce_axis
+    ko, ki = s[Z].split(k, factor=k_f)
+    s[Z].reorder(xo, yo, ko, xi, ki, yi)
+    s[Z].vectorize(yi)
+
+    # zz = s[Z].fuse(ko, xi)
+
+    tvm.lower(s, [X,Y,Z], simple_mode=True)
+    s[Z].bind(xo, tvm.thread_axis("blockIdx.x"))
+    s[Z].bind(yo, tvm.thread_axis("threadIdx.x"))
+
+    # s[Z].bind(Z.op.axis[0], tvm.thread_axis("blockIdx.x"))
     # s[Z].bind(Z.op.axis[1], tvm.thread_axis("threadIdx.x"))
 
 
@@ -217,14 +221,54 @@ def make_matrix_mul(shapeA, transposeA, shapeB, transposeB, tgt, tgt_host,
     return _export_module(f, func_name, remote)
 
 
+def make_conv2d_unoptimized(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
+    in_size, in_size, in_channel, batch = shapeX
+    kernel, kernel, in_channel, out_channel = shapeF
+    pad = 1
+    stride = 1
+
+    A = tvm.placeholder((in_size, in_size, in_channel, batch), name='A')
+    W = tvm.placeholder((kernel, kernel, in_channel, out_channel), name='W')
+    out_size = (in_size - kernel + 2 * pad) // stride + 1
+    # Pad input
+    Apad = tvm.compute(
+        (in_size + 2 * pad, in_size + 2 * pad, in_channel, batch),
+        lambda yy, xx, cc, nn: tvm.select(
+            tvm.all(yy >= pad, yy - pad < in_size,
+                    xx >= pad, xx - pad < in_size),
+            A[yy - pad, xx - pad, cc, nn], tvm.const(0.)),
+        name='Apad')
+
+
+    # Create reduction variables
+    rc = tvm.reduce_axis((0, in_channel), name='rc')
+    ry = tvm.reduce_axis((0, kernel), name='ry')
+    rx = tvm.reduce_axis((0, kernel), name='rx')
+    # Compute the convolution
+    B = tvm.compute(
+        (out_size, out_size, out_channel, batch),
+        lambda yy, xx, ff, nn: tvm.sum(
+            Apad[yy * stride + ry, xx * stride + rx, rc, nn] * W[ry, rx, rc, ff],
+            axis=[ry, rx, rc]),
+        name='B')
+
+    s = tvm.create_schedule(B.op)
+
+    s[Apad].bind(Apad.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[Apad].bind(Apad.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    s[B].bind(B.op.axis[0], tvm.thread_axis("blockIdx.x"))
+    s[B].bind(B.op.axis[1], tvm.thread_axis("threadIdx.x"))
+
+    f = tvm.build(s, [A, W, B], tgt, target_host=tgt_host, name=func_name)
+
+    return _export_module(f, func_name, remote)
+
+
 def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
-    assert(shapeX[1] == shapeF[1])
+    in_size, in_size, in_channel, batch = shapeX
+    kernel, kernel, in_channel, out_channel  = shapeF
 
-    N, C, H, W = shapeX
-    M, C, R, S = shapeF
-
-    assert (H == W)
-    assert (R == S)
     """TODO: Your code here"""
     """Hint: use tvm.reduce_axis, tvm.sum"""
     """Hint: go by conv2d definition. Treat stride=1, padding=0 case only."""
@@ -248,11 +292,7 @@ def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
     #
     # f = tvm.build(s, [X, F, Y], tgt, target_host=tgt_host, name=func_name)
 
-    batch = N
-    in_channel = C
-    out_channel = M
-    in_size = H
-    kernel = R
+
     pad = 1
     stride = 1
 
@@ -290,11 +330,11 @@ def make_conv2d(shapeX, shapeF, tgt, tgt_host, func_name, dtype="float32"):
     BL = s.cache_write(B, "local")
 
     # tile consts
-    tile = 8
-    num_thread = 8
+    tile = 2
+    num_thread = 16
     block_factor = tile * num_thread
-    step = 8
-    vthread = 2
+    step = 4
+    vthread = 1
 
     # Get the GPU thread indices
     block_x = tvm.thread_axis("blockIdx.x")
